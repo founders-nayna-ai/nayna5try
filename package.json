@@ -1,6 +1,6 @@
 {
-  "name": "message-buffer-api-v2",
-  "version": "2.0.0",
+  "name": "message-buffer-api-v2.1",
+  "version": "2.1.0",
   "type": "module",
   "main": "index.js",
   "scripts": {

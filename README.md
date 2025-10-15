@@ -1,47 +1,43 @@
-# Message Buffer API v2 (Wati Full Payload + 6s Debounce)
+# Message Buffer API v2.1 — Wati Flat Payload Support (6s Debounce)
 
-This version keeps the **entire Wati webhook payload** exactly as-is — all headers, fields, and metadata remain untouched.  
-It only merges multiple messages' `body.text` fields (for the same `body.waId` within 6 seconds) into one combined string.
+### 🔧 What it does
+- Works with **flat Wati payloads** (e.g. `{ id, waId, text, ... }`)
+- Also supports older **array style** (`[{ body: {...}}]`)
+- Buffers messages for 6 seconds per `waId`
+- Combines only the `text` field → replaces `text` in the last message
+- Forwards the **exact same JSON structure** to your `CALLBACK_URL`
 
-## How it works
-1. Wati sends each inbound message (array with one object) → `/ingest`.
-2. The service buffers messages per `body.waId` for 6 seconds.
-3. After 6s of silence, it takes the **last full payload**, merges all texts with `\n`, and replaces `body.text` in that last payload.
-4. The **entire array** (like Wati's original) is sent to your `CALLBACK_URL` webhook (usually n8n).
-
-### Example Output to n8n
+### Example
+Input (3 messages within 6 seconds):
 ```json
-[
-  {
-    "headers": {...},
-    "params": {},
-    "query": {},
-    "body": {
-      "waId": "918178840644",
-      "text": "Hey\nHow are you\nNeed updates",
-      "type": "text",
-      "...": "other unchanged fields"
-    },
-    "webhookUrl": "...",
-    "executionMode": "production",
-    "source": "message-buffer-api",
-    "firstTimestamp": 1728850000000,
-    "lastTimestamp": 1728850007000
-  }
-]
+{ "waId": "91817...", "text": "Hi" }
+{ "waId": "91817...", "text": "How are you" }
+{ "waId": "91817...", "text": "Need updates" }
+```
+
+Output to your n8n webhook:
+```json
+{
+  "waId": "91817...",
+  "text": "Hi\nHow are you\nNeed updates",
+  "type": "text",
+  "senderName": "Sagar",
+  "id": "...",
+  "...": "other unchanged fields"
+}
 ```
 
 ### Environment Variables
 | Key | Description |
 |-----|--------------|
-| `CALLBACK_URL` | n8n webhook URL that should receive the final combined payload |
-| `WINDOW_MS` | Debounce window in ms (default 6000) |
-| `SHARED_SECRET` | Optional security header |
-| `PORT` | Default 3000 |
+| `CALLBACK_URL` | n8n webhook that receives combined payload |
+| `WINDOW_MS` | debounce window in ms (default 6000) |
+| `SHARED_SECRET` | optional shared secret (disabled if empty) |
+| `PORT` | default 3000 |
 
-### Deployment (same as v1)
-1. Upload files to a new GitHub repo.
-2. Deploy on Render or Railway:
-   - **Start command:** `node index.js`
-   - Add env vars: CALLBACK_URL, WINDOW_MS=6000, SHARED_SECRET.
-3. Set Wati webhook → `https://your-app.onrender.com/ingest`
+### Deployment
+1. Replace old files in your existing repo with these.
+2. Push commit → Render redeploys automatically.
+3. Confirm `/health` → `{ ok: true }`
+4. Wati webhook → `https://your-app.onrender.com/ingest`
+5. n8n receives full payload after 6s of silence.
