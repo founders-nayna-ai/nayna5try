@@ -1,7 +1,11 @@
 /**
- * Message Buffer API (v2.1) — Supports both flat & array Wati payloads (6s debounce)
- * Combines consecutive messages (same waId) and forwards the full original payload,
- * only replacing `text` in the last message.
+ * Message Buffer API (v2.3)
+ * ---------------------------------------------------------
+ * - Works with both flat & array Wati payloads
+ * - Combines messages for same waId within WINDOW_MS
+ * - Replaces only the `text` field
+ * - Normalizes //ingest → /ingest
+ * - Always responds 200 (prevents Wati retries/disable)
  */
 
 import express from 'express';
@@ -9,8 +13,16 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 
+// Load environment variables
 dotenv.config();
 const app = express();
+
+// ✅ Normalize double slashes (//ingest → /ingest)
+app.use((req, res, next) => {
+  req.url = req.url.replace(/\/{2,}/g, '/');
+  next();
+});
+
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
@@ -18,7 +30,7 @@ const WINDOW_MS = parseInt(process.env.WINDOW_MS || '6000', 10);
 const CALLBACK_URL = process.env.CALLBACK_URL;
 const SHARED_SECRET = process.env.SHARED_SECRET || '';
 
-// store per waId
+// Store message buffers by waId
 const store = new Map();
 
 async function postToCallback(finalPayload) {
@@ -38,19 +50,19 @@ async function postToCallback(finalPayload) {
   }
 }
 
-// Extract waId and text from either format
+// Extract waId and text from either payload style
 function extractData(payload) {
   let waId = null;
   let text = '';
   let type = 'flat';
 
   if (Array.isArray(payload)) {
-    // old style [ { body: {...} } ]
+    // Old style [ { body: {...} } ]
     waId = payload?.[0]?.body?.waId || null;
     text = payload?.[0]?.body?.text?.trim() || '';
     type = 'array';
   } else if (typeof payload === 'object') {
-    // flat style { id, waId, text, ... }
+    // Flat style { id, waId, text, ... }
     waId = payload?.waId || null;
     text = payload?.text?.trim() || '';
     type = 'flat';
@@ -79,9 +91,7 @@ app.post('/ingest', async (req, res) => {
       type,
     };
 
-    if (text && !current.texts.includes(text)) {
-      current.texts.push(text);
-    }
+    if (text && !current.texts.includes(text)) current.texts.push(text);
     current.lastPayload = fullPayload;
     current.lastTimestamp = now;
 
@@ -120,5 +130,8 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, windowMs: WINDOW_MS, hasCallback: !!CALLBACK_URL });
 });
 
+// ✅ Catch-all: ensures Wati never gets a 404
+app.post('*', (req, res) => res.status(200).json({ ok: true }));
+
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Message Buffer API v2.1 running on :${port}`));
+app.listen(port, () => console.log(`Message Buffer API v2.3 running on :${port}`));
